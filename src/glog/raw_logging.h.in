@@ -46,7 +46,7 @@
 // Annoying stuff for windows -- makes sure clients can import these functions
 #ifndef GOOGLE_GLOG_DLL_DECL
 # if defined(_WIN32) && !defined(__CYGWIN__)
-#   define GOOGLE_GLOG_DLL_DECL  __declspec(dllimport)
+#   define  __declspec(dllimport)
 # else
 #   define GOOGLE_GLOG_DLL_DECL
 # endif
@@ -169,7 +169,7 @@ static inline void RawLogStub__(int /* ignored */, ...) {
 // Logs format... at "severity" level, reporting it
 // as called from file:line.
 // This does not allocate memory or acquire locks.
-GOOGLE_GLOG_DLL_DECL void RawLog__(LogSeverity severity,
+void RawLog__(LogSeverity severity,
                                    const char* file,
                                    int line,
                                    const char* format, ...)

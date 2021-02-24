@@ -64,7 +64,7 @@ using std::vector;
 
 _START_GOOGLE_NAMESPACE_
 
-extern GOOGLE_GLOG_DLL_DECL void (*g_logging_fail_func)();
+extern void (*g_logging_fail_func)();
 
 _END_GOOGLE_NAMESPACE_
 

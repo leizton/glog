@@ -37,29 +37,29 @@
 // glog dll, but still want to include config.h just like the
 // dll does, so they can use internal tools and APIs for testing.
 //
-// The problem is that config.h declares GOOGLE_GLOG_DLL_DECL to be
+// The problem is that config.h declares to be
 // for exporting symbols, but the unittest needs to *import* symbols
 // (since it's not the dll).
 //
 // The solution is to have this file, which is just like config.h but
-// sets GOOGLE_GLOG_DLL_DECL to do a dllimport instead of a dllexport.
+// sets to do a dllimport instead of a dllexport.
 //
 // The reason we need this extra GOOGLE_GLOG_DLL_DECL_FOR_UNITTESTS
-// variable is in case people want to set GOOGLE_GLOG_DLL_DECL explicitly
+// variable is in case people want to set explicitly
 // to something other than __declspec(dllexport).  In that case, they
 // may want to use something other than __declspec(dllimport) for the
 // unittest case.  For that, we allow folks to define both
-// GOOGLE_GLOG_DLL_DECL and GOOGLE_GLOG_DLL_DECL_FOR_UNITTESTS explicitly.
+// and GOOGLE_GLOG_DLL_DECL_FOR_UNITTESTS explicitly.
 //
 // NOTE: This file is equivalent to config.h on non-windows systems,
 // which never defined GOOGLE_GLOG_DLL_DECL_FOR_UNITTESTS and always
-// define GOOGLE_GLOG_DLL_DECL to the empty string.
+// define to the empty string.
 
 #include "config.h"
 
 #undef GOOGLE_GLOG_DLL_DECL
 #ifdef GOOGLE_GLOG_DLL_DECL_FOR_UNITTESTS
-# define GOOGLE_GLOG_DLL_DECL  GOOGLE_GLOG_DLL_DECL_FOR_UNITTESTS
+# define  GOOGLE_GLOG_DLL_DECL_FOR_UNITTESTS
 #else
 // if DLL_DECL_FOR_UNITTESTS isn't defined, use ""
 # define GOOGLE_GLOG_DLL_DECL

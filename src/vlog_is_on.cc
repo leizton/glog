@@ -63,7 +63,7 @@ _START_GOOGLE_NAMESPACE_
 namespace glog_internal_namespace_ {
 
 // Used by logging_unittests.cc so can't make it static here.
-GOOGLE_GLOG_DLL_DECL bool SafeFNMatch_(const char* pattern,
+bool SafeFNMatch_(const char* pattern,
                                        size_t patt_len,
                                        const char* str,
                                        size_t str_len);
@@ -72,7 +72,7 @@ GOOGLE_GLOG_DLL_DECL bool SafeFNMatch_(const char* pattern,
 // of arguments and does not allocate any memory,
 // but we only support "*" and "?" wildcards, not the "[...]" patterns.
 // It's not a static function for the unittest.
-GOOGLE_GLOG_DLL_DECL bool SafeFNMatch_(const char* pattern,
+bool SafeFNMatch_(const char* pattern,
                                        size_t patt_len,
                                        const char* str,
                                        size_t str_len) {
