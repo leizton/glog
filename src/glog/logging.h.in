@@ -48,15 +48,6 @@
 #endif
 #include <vector>
 
-#if defined(_MSC_VER)
-#define GLOG_MSVC_PUSH_DISABLE_WARNING(n) __pragma(warning(push)) \
-                                     __pragma(warning(disable:n))
-#define GLOG_MSVC_POP_WARNING() __pragma(warning(pop))
-#else
-#define GLOG_MSVC_PUSH_DISABLE_WARNING(n)
-#define GLOG_MSVC_POP_WARNING()
-#endif
-
 // Annoying stuff for windows -- makes sure clients can import these functions
 #ifndef GOOGLE_GLOG_DLL_DECL
 # if defined(_WIN32) && !defined(__CYGWIN__)
@@ -1032,64 +1023,31 @@ const LogSeverity GLOG_0 = GLOG_ERROR;
   true ? (void) 0 : LOG_ASSERT(condition)
 
 // MSVC warning C4127: conditional expression is constant
-#define DCHECK(condition) \
-  GLOG_MSVC_PUSH_DISABLE_WARNING(4127) \
-  while (false) \
-    GLOG_MSVC_POP_WARNING() CHECK(condition)
+#define DCHECK(condition)
 
-#define DCHECK_EQ(val1, val2) \
-  GLOG_MSVC_PUSH_DISABLE_WARNING(4127) \
-  while (false) \
-    GLOG_MSVC_POP_WARNING() CHECK_EQ(val1, val2)
+#define DCHECK_EQ(val1, val2)
 
-#define DCHECK_NE(val1, val2) \
-  GLOG_MSVC_PUSH_DISABLE_WARNING(4127) \
-  while (false) \
-    GLOG_MSVC_POP_WARNING() CHECK_NE(val1, val2)
+#define DCHECK_NE(val1, val2)
 
-#define DCHECK_LE(val1, val2) \
-  GLOG_MSVC_PUSH_DISABLE_WARNING(4127) \
-  while (false) \
-    GLOG_MSVC_POP_WARNING() CHECK_LE(val1, val2)
+#define DCHECK_LE(val1, val2)
 
-#define DCHECK_LT(val1, val2) \
-  GLOG_MSVC_PUSH_DISABLE_WARNING(4127) \
-  while (false) \
-    GLOG_MSVC_POP_WARNING() CHECK_LT(val1, val2)
+#define DCHECK_LT(val1, val2)
 
-#define DCHECK_GE(val1, val2) \
-  GLOG_MSVC_PUSH_DISABLE_WARNING(4127) \
-  while (false) \
-    GLOG_MSVC_POP_WARNING() CHECK_GE(val1, val2)
+#define DCHECK_GE(val1, val2)
 
-#define DCHECK_GT(val1, val2) \
-  GLOG_MSVC_PUSH_DISABLE_WARNING(4127) \
-  while (false) \
-    GLOG_MSVC_POP_WARNING() CHECK_GT(val1, val2)
+#define DCHECK_GT(val1, val2)
 
 // You may see warnings in release mode if you don't use the return
 // value of DCHECK_NOTNULL. Please just use DCHECK for such cases.
 #define DCHECK_NOTNULL(val) (val)
 
-#define DCHECK_STREQ(str1, str2) \
-  GLOG_MSVC_PUSH_DISABLE_WARNING(4127) \
-  while (false) \
-    GLOG_MSVC_POP_WARNING() CHECK_STREQ(str1, str2)
+#define DCHECK_STREQ(str1, str2)
 
-#define DCHECK_STRCASEEQ(str1, str2) \
-  GLOG_MSVC_PUSH_DISABLE_WARNING(4127) \
-  while (false) \
-    GLOG_MSVC_POP_WARNING() CHECK_STRCASEEQ(str1, str2)
+#define DCHECK_STRCASEEQ(str1, str2)
 
-#define DCHECK_STRNE(str1, str2) \
-  GLOG_MSVC_PUSH_DISABLE_WARNING(4127) \
-  while (false) \
-    GLOG_MSVC_POP_WARNING() CHECK_STRNE(str1, str2)
+#define DCHECK_STRNE(str1, str2)
 
-#define DCHECK_STRCASENE(str1, str2) \
-  GLOG_MSVC_PUSH_DISABLE_WARNING(4127) \
-  while (false) \
-    GLOG_MSVC_POP_WARNING() CHECK_STRCASENE(str1, str2)
+#define DCHECK_STRCASENE(str1, str2)
 
 #endif  // DCHECK_IS_ON()
 
@@ -1156,9 +1114,7 @@ public:
   // 2005 if you are deriving from a type in the Standard C++ Library"
   // http://msdn.microsoft.com/en-us/library/3tdb471s(VS.80).aspx
   // Let's just ignore the warning.
-GLOG_MSVC_PUSH_DISABLE_WARNING(4275)
   class LogStream : public std::ostream {
-GLOG_MSVC_POP_WARNING()
   public:
     LogStream(char *buf, int len, int ctr)
         : std::ostream(NULL),
