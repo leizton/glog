@@ -31,18 +31,18 @@
 //
 // Implementation of InstallFailureSignalHandler().
 
-#include "utilities.h"
+#include "glog/logging.h"
 #include "stacktrace.h"
 #include "symbolize.h"
-#include "glog/logging.h"
+#include "utilities.h"
 
 #include <signal.h>
 #include <time.h>
 #ifdef HAVE_UCONTEXT_H
-# include <ucontext.h>
+#include <ucontext.h>
 #endif
 #ifdef HAVE_SYS_UCONTEXT_H
-# include <sys/ucontext.h>
+#include <sys/ucontext.h>
 #endif
 #include <algorithm>
 
@@ -57,16 +57,16 @@ namespace {
 // The list should be synced with the comment in signalhandler.h.
 const struct {
   int number;
-  const char *name;
+  const char* name;
 } kFailureSignals[] = {
-  { SIGSEGV, "SIGSEGV" },
-  { SIGILL, "SIGILL" },
-  { SIGFPE, "SIGFPE" },
-  { SIGABRT, "SIGABRT" },
+    {SIGSEGV, "SIGSEGV"},
+    {SIGILL, "SIGILL"},
+    {SIGFPE, "SIGFPE"},
+    {SIGABRT, "SIGABRT"},
 #if !defined(OS_WINDOWS)
-  { SIGBUS, "SIGBUS" },
+    {SIGBUS, "SIGBUS"},
 #endif
-  { SIGTERM, "SIGTERM" },
+    {SIGTERM, "SIGTERM"},
 };
 
 static bool kFailureSignalHandlerInstalled = false;
@@ -75,7 +75,7 @@ static bool kFailureSignalHandlerInstalled = false;
 void* GetPC(void* ucontext_in_void) {
 #if (defined(HAVE_UCONTEXT_H) || defined(HAVE_SYS_UCONTEXT_H)) && defined(PC_FROM_UCONTEXT)
   if (ucontext_in_void != NULL) {
-    ucontext_t *context = reinterpret_cast<ucontext_t *>(ucontext_in_void);
+    ucontext_t* context = reinterpret_cast<ucontext_t*>(ucontext_in_void);
     return (void*)context->PC_FROM_UCONTEXT;
   }
 #endif
@@ -85,15 +85,15 @@ void* GetPC(void* ucontext_in_void) {
 // The class is used for formatting error messages.  We don't use printf()
 // as it's not async signal safe.
 class MinimalFormatter {
- public:
-  MinimalFormatter(char *buffer, int size)
-      : buffer_(buffer),
-        cursor_(buffer),
-        end_(buffer + size) {
+public:
+  MinimalFormatter(char* buffer, int size)
+      : buffer_(buffer)
+      , cursor_(buffer)
+      , end_(buffer + size) {
   }
 
   // Returns the number of bytes written in the buffer.
-  int num_bytes_written() const { return (int) (cursor_ - buffer_); }
+  int num_bytes_written() const { return (int)(cursor_ - buffer_); }
 
   // Appends string from "str" and updates the internal cursor.
   void AppendString(const char* str) {
@@ -138,10 +138,10 @@ class MinimalFormatter {
     }
   }
 
- private:
-  char *buffer_;
-  char *cursor_;
-  const char * const end_;
+private:
+  char* buffer_;
+  char* cursor_;
+  const char* const end_;
 };
 
 // Writes the given data with the size to the standard error.
@@ -158,7 +158,7 @@ void (*g_failure_writer)(const char* data, int size) = WriteToStderr;
 // as localtime() is not guaranteed to be async signal safe.
 void DumpTimeInfo() {
   time_t time_in_sec = time(NULL);
-  char buf[256];  // Big enough for time info.
+  char buf[256]; // Big enough for time info.
   MinimalFormatter formatter(buf, sizeof(buf));
   formatter.AppendString("*** Aborted at ");
   formatter.AppendUint64(time_in_sec, 10);
@@ -173,7 +173,7 @@ void DumpTimeInfo() {
 #ifdef HAVE_SIGACTION
 
 // Dumps information about the signal to STDERR.
-void DumpSignalInfo(int signal_number, siginfo_t *siginfo) {
+void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
   // Get the signal name.
   const char* signal_name = NULL;
   for (size_t i = 0; i < ARRAYSIZE(kFailureSignals); ++i) {
@@ -182,7 +182,7 @@ void DumpSignalInfo(int signal_number, siginfo_t *siginfo) {
     }
   }
 
-  char buf[256];  // Big enough for signal info.
+  char buf[256]; // Big enough for signal info.
   MinimalFormatter formatter(buf, sizeof(buf));
 
   formatter.AppendString("*** ");
@@ -217,26 +217,26 @@ void DumpSignalInfo(int signal_number, siginfo_t *siginfo) {
   g_failure_writer(buf, formatter.num_bytes_written());
 }
 
-#endif  // HAVE_SIGACTION
+#endif // HAVE_SIGACTION
 
 // Dumps information about the stack frame to STDERR.
 void DumpStackFrameInfo(const char* prefix, void* pc) {
   // Get the symbol name.
-  const char *symbol = "(unknown)";
-  char symbolized[1024];  // Big enough for a sane symbol.
+  const char* symbol = "(unknown)";
+  char symbolized[1024]; // Big enough for a sane symbol.
   // Symbolizes the previous address of pc because pc may be in the
   // next function.
-  if (Symbolize(reinterpret_cast<char *>(pc) - 1,
+  if (Symbolize(reinterpret_cast<char*>(pc) - 1,
                 symbolized, sizeof(symbolized))) {
     symbol = symbolized;
   }
 
-  char buf[1024];  // Big enough for stack frame info.
+  char buf[1024]; // Big enough for stack frame info.
   MinimalFormatter formatter(buf, sizeof(buf));
 
   formatter.AppendString(prefix);
   formatter.AppendString("@ ");
-  const int width = 2 * sizeof(void*) + 2;  // + 2  for "0x".
+  const int width = 2 * sizeof(void*) + 2; // + 2  for "0x".
   formatter.AppendHexWithPadding(reinterpret_cast<uintptr_t>(pc), width);
   formatter.AppendString(" ");
   formatter.AppendString(symbol);
@@ -271,8 +271,8 @@ static pthread_t* g_entered_thread_id_pointer = NULL;
 void FailureSignalHandler(int signal_number)
 #else
 void FailureSignalHandler(int signal_number,
-                          siginfo_t *signal_info,
-                          void *ucontext)
+                          siginfo_t* signal_info,
+                          void* ucontext)
 #endif
 {
   // First check if we've already entered the function.  We use an atomic
@@ -316,18 +316,18 @@ void FailureSignalHandler(int signal_number,
 
 #if !defined(OS_WINDOWS)
   // Get the program counter from ucontext.
-  void *pc = GetPC(ucontext);
+  void* pc = GetPC(ucontext);
   DumpStackFrameInfo("PC: ", pc);
 #endif
 
 #ifdef HAVE_STACKTRACE
   // Get the stack traces.
-  void *stack[32];
+  void* stack[32];
   // +1 to exclude this function.
   const int depth = GetStackTrace(stack, ARRAYSIZE(stack), 1);
-# ifdef HAVE_SIGACTION
+#ifdef HAVE_SIGACTION
   DumpSignalInfo(signal_number, signal_info);
-# endif
+#endif
   // Dump the stack traces.
   for (int i = 0; i < depth; ++i) {
     DumpStackFrameInfo("    ", stack[i]);
@@ -351,7 +351,7 @@ void FailureSignalHandler(int signal_number,
   InvokeDefaultSignalHandler(signal_number);
 }
 
-}  // namespace
+} // namespace
 
 namespace glog_internal_namespace_ {
 
@@ -366,11 +366,11 @@ bool IsFailureSignalHandlerInstalled() {
     return true;
 #elif defined(OS_WINDOWS)
   return kFailureSignalHandlerInstalled;
-#endif  // HAVE_SIGACTION
+#endif // HAVE_SIGACTION
   return false;
 }
 
-}  // namespace glog_internal_namespace_
+} // namespace glog_internal_namespace_
 
 void InstallFailureSignalHandler() {
 #ifdef HAVE_SIGACTION
@@ -391,13 +391,13 @@ void InstallFailureSignalHandler() {
              SIG_ERR);
   }
   kFailureSignalHandlerInstalled = true;
-#endif  // HAVE_SIGACTION
+#endif // HAVE_SIGACTION
 }
 
 void InstallFailureWriter(void (*writer)(const char* data, int size)) {
 #if defined(HAVE_SIGACTION) || defined(OS_WINDOWS)
   g_failure_writer = writer;
-#endif  // HAVE_SIGACTION
+#endif // HAVE_SIGACTION
 }
 
 _END_GOOGLE_NAMESPACE_
