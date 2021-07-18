@@ -517,15 +517,13 @@ OpenObjectFileContainingPcAndGetStartAddress(uint64_t pc,
 
   int maps_fd;
   NO_INTR(maps_fd = open("/proc/self/maps", O_RDONLY));
-  FileDescriptor wrapped_maps_fd(maps_fd);
-  if (wrapped_maps_fd.get() < 0) {
+  if (maps_fd < 0) {
     return -1;
   }
 
   int mem_fd;
   NO_INTR(mem_fd = open("/proc/self/mem", O_RDONLY));
-  FileDescriptor wrapped_mem_fd(mem_fd);
-  if (wrapped_mem_fd.get() < 0) {
+  if (mem_fd.get() < 0) {
     return -1;
   }
 
