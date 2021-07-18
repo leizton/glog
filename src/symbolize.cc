@@ -513,19 +513,11 @@ OpenObjectFileContainingPcAndGetStartAddress(uint64_t pc,
                                              uint64_t& base_address,
                                              char* out_file_name,
                                              int out_file_name_size) {
-  int object_fd;
+  int maps_fd = open("/proc/self/maps", O_RDONLY));
+  if (maps_fd < 0) return -1;
 
-  int maps_fd;
-  NO_INTR(maps_fd = open("/proc/self/maps", O_RDONLY));
-  if (maps_fd < 0) {
-    return -1;
-  }
-
-  int mem_fd;
-  NO_INTR(mem_fd = open("/proc/self/mem", O_RDONLY));
-  if (mem_fd.get() < 0) {
-    return -1;
-  }
+  int mem_fd = open("/proc/self/mem", O_RDONLY));
+  if (mem_fd.get() < 0) return -1;
 
   // Iterate over maps and look for the map containing the pc.  Then
   // look into the symbol tables inside.
@@ -647,15 +639,7 @@ OpenObjectFileContainingPcAndGetStartAddress(uint64_t pc,
     }
 
     // Finally, "cursor" now points to file name of our interest.
-    NO_INTR(object_fd = open(cursor, O_RDONLY));
-    if (object_fd < 0) {
-      // Failed to open object file.  Copy the object file name to
-      // |out_file_name|.
-      strncpy(out_file_name, cursor, out_file_name_size);
-      // Making sure |out_file_name| is always null-terminated.
-      out_file_name[out_file_name_size - 1] = '\0';
-      return -1;
-    }
+    int object_fd = open(cursor, O_RDONLY);
     return object_fd;
   }
 }
@@ -764,64 +748,20 @@ static ATTRIBUTE_NOINLINE bool SymbolizeAndDemangle(void* pc, char* out,
   uint64_t base_address = 0;
   int object_fd = -1;
 
-  if (out_size < 1) {
-    return false;
-  }
+  if (out_size < 1) return false;
   out[0] = '\0';
   SafeAppendString("(", out, out_size);
 
-  if (g_symbolize_open_object_file_callback) {
-    object_fd = g_symbolize_open_object_file_callback(pc0, start_address,
-                                                      base_address, out + 1,
-                                                      out_size - 1);
-  } else {
-    object_fd = OpenObjectFileContainingPcAndGetStartAddress(pc0, start_address,
-                                                             base_address,
-                                                             out + 1,
-                                                             out_size - 1);
-  }
+  object_fd = OpenObjectFileContainingPcAndGetStartAddress(pc0, start_address,
+                                                           base_address,
+                                                           out + 1,
+                                                           out_size - 1);
+  if (object_fd < 0) return false;
 
-#if defined(PRINT_UNSYMBOLIZED_STACK_TRACES)
-  {
-    FileDescriptor wrapped_object_fd(object_fd);
-#else
-  // Check whether a file name was returned.
-  if (object_fd < 0) {
-#endif
-    if (out[1]) {
-      // The object file containing PC was determined successfully however the
-      // object file was not opened successfully.  This is still considered
-      // success because the object file name and offset are known and tools
-      // like asan_symbolize.py can be used for the symbolization.
-      out[out_size - 1] = '\0'; // Making sure |out| is always null-terminated.
-      SafeAppendString("+0x", out, out_size);
-      SafeAppendHexNumber(pc0 - base_address, out, out_size);
-      SafeAppendString(")", out, out_size);
-      return true;
-    }
-    // Failed to determine the object file containing PC.  Bail out.
-    return false;
-  }
-  FileDescriptor wrapped_object_fd(object_fd);
-  int elf_type = FileGetElfType(wrapped_object_fd.get());
-  if (elf_type == -1) {
-    return false;
-  }
-  if (g_symbolize_callback) {
-    // Run the call back if it's installed.
-    // Note: relocation (and much of the rest of this code) will be
-    // wrong for prelinked shared libraries and PIE executables.
-    uint64_t relocation = (elf_type == ET_DYN) ? start_address : 0;
-    int num_bytes_written = g_symbolize_callback(wrapped_object_fd.get(),
-                                                 pc, out, out_size,
-                                                 relocation);
-    if (num_bytes_written > 0) {
-      out += num_bytes_written;
-      out_size -= num_bytes_written;
-    }
-  }
-  if (!GetSymbolFromObjectFile(wrapped_object_fd.get(), pc0,
-                               out, out_size, base_address)) {
+  int elf_type = FileGetElfType(object_fd);
+  if (elf_type == -1) return false;
+
+  if (!GetSymbolFromObjectFile(object_fd, pc0, out, out_size, base_address)) {
     return false;
   }
 
