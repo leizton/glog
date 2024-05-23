@@ -101,7 +101,7 @@ sed -e 's/@ac_cv_cxx_using_operator@/1/g' \
     -e 's/@ac_cv_have_.*@/0/g' \
     -e 's/@ac_google_start_namespace@/namespace google {{/g' \
     -e 's/@ac_google_end_namespace@/}}/g' \
-    -e 's/@ac_google_namespace@/google/g' \
+    -e 's/google/google/g' \
     -e 's/@ac_cv___attribute___noinline@/__attribute__((noinline))/g' \
     -e 's/@ac_cv___attribute___noreturn@/__attribute__((noreturn))/g' \
     -e 's/@ac_cv___attribute___printf_4_5@/__attribute__((__format__ (__printf__, 4, 5)))/g'
