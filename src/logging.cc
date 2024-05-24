@@ -83,14 +83,7 @@ using std::fclose;
 using std::fflush;
 using std::fprintf;
 using std::perror;
-
-#ifdef __QNX__
 using std::fdopen;
-#endif
-
-#ifdef _WIN32
-#define fdopen _fdopen
-#endif
 
 // There is no thread annotation support.
 #define EXCLUSIVE_LOCKS_REQUIRED(mu)
@@ -756,8 +749,8 @@ inline void LogDestination::MaybeLogToEmail(LogSeverity severity,
 
 inline void LogDestination::MaybeLogToLogfile(LogSeverity severity,
                                               time_t timestamp,
-					      const char* message,
-					      size_t len) {
+					                                    const char* message,
+					                                    size_t len) {
   const bool should_flush = severity > FLAGS_logbuflevel;
   LogDestination* destination = log_destination(severity);
   destination->logger_->Write(should_flush, timestamp, message, len);
@@ -767,13 +760,8 @@ inline void LogDestination::LogToAllLogfiles(LogSeverity severity,
                                              time_t timestamp,
                                              const char* message,
                                              size_t len) {
-
-  if ( FLAGS_logtostderr ) {           // global flag: never log to file
-    ColoredWriteToStderr(severity, message, len);
-  } else {
-    for (int i = severity; i >= 0; --i)
-      LogDestination::MaybeLogToLogfile(i, timestamp, message, len);
-  }
+  for (int i = severity; i >= 0; --i)
+    LogDestination::MaybeLogToLogfile(i, timestamp, message, len);
 }
 
 inline void LogDestination::LogToSinks(LogSeverity severity,
@@ -908,10 +896,8 @@ bool LogFileObject::CreateLogfile(const string& time_pid_string) {
   const char* filename = string_filename.c_str();
   int fd = open(filename, O_WRONLY | O_CREAT | O_EXCL, FLAGS_logfile_mode);
   if (fd == -1) return false;
-#ifdef HAVE_FCNTL
   // Mark the file close-on-exec. We don't really care if this fails
   fcntl(fd, F_SETFD, FD_CLOEXEC);
-#endif
 
   file_ = fdopen(fd, "a");  // Make a FILE*.
   if (file_ == NULL) {  // Man, we're screwed!
@@ -935,9 +921,6 @@ bool LogFileObject::CreateLogfile(const string& time_pid_string) {
     linkpath += linkname;
     unlink(linkpath.c_str());                    // delete old one if it exists
 
-#if defined(OS_WINDOWS)
-    // TODO(hamaji): Create lnk file on Windows?
-#elif defined(HAVE_UNISTD_H)
     // We must have unistd.h.
     // Make the symlink be relative (in the same dir) so that if the
     // entire log directory gets relocated the link is still valid.
@@ -955,25 +938,15 @@ bool LogFileObject::CreateLogfile(const string& time_pid_string) {
         // silently ignore failures
       }
     }
-#endif
   }
 
   return true;  // Everything worked
 }
 
-void LogFileObject::Write(bool force_flush,
-                          time_t timestamp,
-                          const char* message,
-                          int message_len) {
+void LogFileObject::Write(bool force_flush, time_t timestamp, const char* message, int message_len) {
   MutexLock l(&lock_);
 
-  // We don't log if the base_name_ is "" (which means "don't write")
-  if (base_filename_selected_ && base_filename_.empty()) {
-    return;
-  }
-
-  if (static_cast<int>(file_length_ >> 20) >= MaxLogSize() ||
-      PidHasChanged()) {
+  if (static_cast<int>(file_length_ >> 20) >= MaxLogSize() || PidHasChanged()) {
     if (file_ != NULL) fclose(file_);
     file_ = NULL;
     file_length_ = bytes_since_flush_ = dropped_mem_length_ = 0;
@@ -1087,35 +1060,27 @@ void LogFileObject::Write(bool force_flush,
   }
 
   // Write to LOG file
-  if ( !stop_writing ) {
-    // fwrite() doesn't return an error when the disk is full, for
-    // messages that are less than 4096 bytes. When the disk is full,
-    // it returns the message length for messages that are less than
-    // 4096 bytes. fwrite() returns 4096 for message lengths that are
-    // greater than 4096, thereby indicating an error.
-    errno = 0;
-    fwrite(message, 1, message_len, file_);
-    if ( FLAGS_stop_logging_if_full_disk &&
-         errno == ENOSPC ) {  // disk full, stop writing to disk
-      stop_writing = true;  // until the disk is
-      return;
-    } else {
-      file_length_ += message_len;
-      bytes_since_flush_ += message_len;
-    }
-  } else {
-    if ( CycleClock_Now() >= next_flush_time_ )
+  if (stop_writing) {
+    if ( CycleClock_Now() >= next_flush_time_ ) {
+      // retry
       stop_writing = false;  // check to see if disk has free space.
+    }
     return;  // no need to flush
   }
+  errno = 0;
+  fwrite(message, 1, message_len, file_);
+  if ( errno == ENOSPC ) {
+    // disk full, stop writing to disk
+    stop_writing = true;
+    return;
+  }
+  file_length_ += message_len;
+  bytes_since_flush_ += message_len;
 
   // See important msgs *now*.  Also, flush logs at least every 10^6 chars,
   // or every "FLAGS_logbufsecs" seconds.
-  if ( force_flush ||
-       (bytes_since_flush_ >= 1000000) ||
-       (CycleClock_Now() >= next_flush_time_) ) {
+  if ( force_flush || (bytes_since_flush_ >= 1000000) || (CycleClock_Now() >= next_flush_time_) ) {
     FlushUnlocked();
-#ifdef OS_LINUX
     // Only consider files >= 3MiB
     if (FLAGS_drop_log_memory && file_length_ >= (3 << 20)) {
       // Don't evict the most recent 1-2MiB so as not to impact a tailer
@@ -1124,12 +1089,10 @@ void LogFileObject::Write(bool force_flush,
       uint32 this_drop_length = total_drop_length - dropped_mem_length_;
       if (this_drop_length >= (2 << 20)) {
         // Only advise when >= 2MiB to drop
-        posix_fadvise(fileno(file_), dropped_mem_length_, this_drop_length,
-                      POSIX_FADV_DONTNEED);
+        posix_fadvise(fileno(file_), dropped_mem_length_, this_drop_length, POSIX_FADV_DONTNEED);
         dropped_mem_length_ = total_drop_length;
       }
     }
-#endif
   }
 }
 
@@ -1152,16 +1115,8 @@ static LogMessage::LogMessageData fatal_msg_data_shared;
 // Static thread-local log data space to use, because typically at most one
 // LogMessageData object exists (in this case glog makes zero heap memory
 // allocations).
-static GLOG_THREAD_LOCAL_STORAGE bool thread_data_available = true;
-
-#ifdef HAVE_ALIGNED_STORAGE
-static GLOG_THREAD_LOCAL_STORAGE
-    std::aligned_storage<sizeof(LogMessage::LogMessageData),
-                         alignof(LogMessage::LogMessageData)>::type thread_msg_data;
-#else
-static GLOG_THREAD_LOCAL_STORAGE
-    char thread_msg_data[sizeof(void*) + sizeof(LogMessage::LogMessageData)];
-#endif  // HAVE_ALIGNED_STORAGE
+static thread_local bool thread_data_available = true;
+static thread_local std::aligned_storage<sizeof(LogMessage::LogMessageData), alignof(LogMessage::LogMessageData)>::type thread_msg_data;
 #endif  // defined(GLOG_THREAD_LOCAL_STORAGE)
 
 LogMessage::LogMessageData::LogMessageData()
@@ -1224,16 +1179,7 @@ void LogMessage::Init(const char* file,
     // No need for locking, because this is thread local.
     if (thread_data_available) {
       thread_data_available = false;
-#ifdef HAVE_ALIGNED_STORAGE
       data_ = new (&thread_msg_data) LogMessageData;
-#else
-      const uintptr_t kAlign = sizeof(void*) - 1;
-
-      char* align_ptr =
-          reinterpret_cast<char*>(reinterpret_cast<uintptr_t>(thread_msg_data + kAlign) & ~kAlign);
-      data_ = new (align_ptr) LogMessageData;
-      assert(reinterpret_cast<uintptr_t>(align_ptr) % sizeof(void*) == 0);
-#endif
     } else {
       allocated_ = new LogMessageData();
       data_ = allocated_;
@@ -1401,56 +1347,12 @@ void ReprintFatalMessage() {
 }
 
 // L >= log_mutex (callers must hold the log_mutex).
-void LogMessage::SendToLog() EXCLUSIVE_LOCKS_REQUIRED(log_mutex) {
-  static bool already_warned_before_initgoogle = false;
-
+void LogMessage::SendToLog() {
   log_mutex.AssertHeld();
 
-  RAW_DCHECK(data_->num_chars_to_log_ > 0 &&
-             data_->message_text_[data_->num_chars_to_log_-1] == '\n', "");
-
-  // Messages of a given severity get logged to lower severity logs, too
-
-  if (!already_warned_before_initgoogle && !IsGoogleLoggingInitialized()) {
-    const char w[] = "WARNING: Logging before InitGoogleLogging() is "
-                     "written to STDERR\n";
-    WriteToStderr(w, strlen(w));
-    already_warned_before_initgoogle = true;
-  }
-
-  // global flag: never log to file if set.  Also -- don't log to a
-  // file if we haven't parsed the command line flags to get the
-  // program name.
-  if (FLAGS_logtostderr || !IsGoogleLoggingInitialized()) {
-    ColoredWriteToStderr(data_->severity_,
-                         data_->message_text_, data_->num_chars_to_log_);
-
-    // this could be protected by a flag if necessary.
-    LogDestination::LogToSinks(data_->severity_,
-                               data_->fullname_, data_->basename_,
-                               data_->line_, &data_->tm_time_,
-                               data_->message_text_ + data_->num_prefix_chars_,
-                               (data_->num_chars_to_log_ -
-                                data_->num_prefix_chars_ - 1));
-  } else {
-
-    // log this message to all log files of severity <= severity_
-    LogDestination::LogToAllLogfiles(data_->severity_, data_->timestamp_,
-                                     data_->message_text_,
-                                     data_->num_chars_to_log_);
-
-    LogDestination::MaybeLogToStderr(data_->severity_, data_->message_text_,
-                                     data_->num_chars_to_log_);
-    LogDestination::MaybeLogToEmail(data_->severity_, data_->message_text_,
-                                    data_->num_chars_to_log_);
-    LogDestination::LogToSinks(data_->severity_,
-                               data_->fullname_, data_->basename_,
-                               data_->line_, &data_->tm_time_,
-                               data_->message_text_ + data_->num_prefix_chars_,
-                               (data_->num_chars_to_log_
-                                - data_->num_prefix_chars_ - 1));
-    // NOTE: -1 removes trailing \n
-  }
+  LogDestination::LogToAllLogfiles(data_->severity_, data_->timestamp_,
+                                   data_->message_text_,
+                                   data_->num_chars_to_log_);
 
   // If we log a FATAL message, flush all the log destinations, then toss
   // a signal for others to catch. We leave the logs in a state that
