@@ -297,8 +297,7 @@ FindSymbol(uint64_t pc, const int fd, char* out, int out_size,
     // Read at most NUM_SYMBOLS symbols at once to save read() calls.
     ElfW(Sym) buf[NUM_SYMBOLS];
     int num_symbols_to_read = std::min(NUM_SYMBOLS, num_symbols - i);
-    const ssize_t len =
-        ReadFromOffset(fd, &buf, sizeof(buf[0]) * num_symbols_to_read, offset);
+    const ssize_t len = ReadFromOffset(fd, &buf, sizeof(buf[0]) * num_symbols_to_read, offset);
     SAFE_ASSERT(len % sizeof(buf[0]) == 0);
     const ssize_t num_symbols_in_buf = len / sizeof(buf[0]);
     SAFE_ASSERT(num_symbols_in_buf <= num_symbols_to_read);
@@ -310,8 +309,7 @@ FindSymbol(uint64_t pc, const int fd, char* out, int out_size,
       if (symbol.st_value != 0 && // Skip null value symbols.
           symbol.st_shndx != 0 && // Skip undefined symbols.
           start_address <= pc && pc < end_address) {
-        ssize_t len1 = ReadFromOffset(fd, out, out_size,
-                                      strtab->sh_offset + symbol.st_name);
+        ssize_t len1 = ReadFromOffset(fd, out, out_size, strtab->sh_offset + symbol.st_name);
         if (len1 <= 0 || memchr(out, '\0', out_size) == NULL) {
           return false;
         }
@@ -340,9 +338,9 @@ static bool GetSymbolFromObjectFile(const int fd,
 
   ElfW(Shdr) symtab, strtab;
 
+  // SHT_SYMTAB: 静态符号表. 目标文件(.o)中的符号
   // Consult a regular symbol table first.
-  if (GetSectionHeaderByType(fd, elf_header.e_shnum, elf_header.e_shoff,
-                             SHT_SYMTAB, &symtab)) {
+  if (GetSectionHeaderByType(fd, elf_header.e_shnum, elf_header.e_shoff, SHT_SYMTAB, &symtab)) {
     if (!ReadFromOffsetExact(fd, &strtab, sizeof(strtab), elf_header.e_shoff + symtab.sh_link * sizeof(symtab))) {
       return false;
     }
@@ -351,9 +349,9 @@ static bool GetSymbolFromObjectFile(const int fd,
     }
   }
 
+  // SHT_DYNSYM: 动态符号表. 共享库(.so)中的符号
   // If the symbol is not found, then consult a dynamic symbol table.
-  if (GetSectionHeaderByType(fd, elf_header.e_shnum, elf_header.e_shoff,
-                             SHT_DYNSYM, &symtab)) {
+  if (GetSectionHeaderByType(fd, elf_header.e_shnum, elf_header.e_shoff, SHT_DYNSYM, &symtab)) {
     if (!ReadFromOffsetExact(fd, &strtab, sizeof(strtab), elf_header.e_shoff + symtab.sh_link * sizeof(symtab))) {
       return false;
     }
@@ -488,8 +486,7 @@ static char* GetHex(const char* start, const char* end, uint64_t* hex) {
   const char* p;
   for (p = start; p < end; ++p) {
     int ch = *p;
-    if ((ch >= '0' && ch <= '9') ||
-        (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f')) {
+    if ((ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f')) {
       *hex = (*hex << 4) | (ch < 'A' ? ch - '0' : (ch & 0xF) + 9);
     } else { // Encountered the first non-hex character.
       break;
@@ -513,10 +510,10 @@ OpenObjectFileContainingPcAndGetStartAddress(uint64_t pc,
                                              uint64_t& base_address,
                                              char* out_file_name,
                                              int out_file_name_size) {
-  int maps_fd = open("/proc/self/maps", O_RDONLY));
+  int maps_fd = open("/proc/self/maps", O_RDONLY);
   if (maps_fd < 0) return -1;
 
-  int mem_fd = open("/proc/self/mem", O_RDONLY));
+  int mem_fd = open("/proc/self/mem", O_RDONLY);
   if (mem_fd.get() < 0) return -1;
 
   // Iterate over maps and look for the map containing the pc.  Then
@@ -526,15 +523,21 @@ OpenObjectFileContainingPcAndGetStartAddress(uint64_t pc,
   LineReader reader(wrapped_maps_fd.get(), buf, sizeof(buf), 0);
   while (true) {
     num_maps++;
-    const char* cursor;
-    const char* eol;
+    const char* cursor;  // iterator
+    const char* eol;     // end of line
     if (!reader.ReadLine(&cursor, &eol)) { // EOF or malformed line.
       return -1;
     }
 
     // Start parsing line in /proc/self/maps.  Here is an example:
     //
-    // 08048000-0804c000 r-xp 00000000 08:01 2142121    /bin/cat
+    // 08048000-0804c000 r-xp 00000000 08:01 2142121 /bin/cat
+    // 内存虚拟地址空间的起始-结束地址
+    // 拥有的读写权限
+    // 在映射的原文件中的偏移量(单位是页)
+    // 映射文件所在设备号
+    // 映射文件所在的inode节点号
+    // 映射文件名
     //
     // We want start address (08048000), end address (0804c000), flags
     // (r-xp) and file name (/bin/cat).
@@ -544,6 +547,9 @@ OpenObjectFileContainingPcAndGetStartAddress(uint64_t pc,
     if (cursor == eol || *cursor != '-') {
       return -1; // Malformed line.
     }
+    if (pc < start_address) {
+      continue; // PC isn't in this map, we skip this map.
+    }
     ++cursor; // Skip '-'.
 
     // Read end address.
@@ -552,23 +558,27 @@ OpenObjectFileContainingPcAndGetStartAddress(uint64_t pc,
     if (cursor == eol || *cursor != ' ') {
       return -1; // Malformed line.
     }
+    if (pc >= end_address) {
+      continue; // PC isn't in this map, we skip this map.
+    }
     ++cursor; // Skip ' '.
 
     // Read flags.  Skip flags until we encounter a space or eol.
     const char* const flags_start = cursor;
-    while (cursor < eol && *cursor != ' ') {
-      ++cursor;
-    }
+    for (; cursor < eol && *cursor != ' '; ++cursor);
     // We expect at least four letters for flags (ex. "r-xp").
     if (cursor == eol || cursor < flags_start + 4) {
       return -1; // Malformed line.
     }
+    // Check flags.  We are only interested in "r*x" maps.
+    if (flags_start[0] != 'r' || flags_start[2] != 'x') {
+      continue; // We skip this map.
+    }
 
     // Determine the base address by reading ELF headers in process memory.
-    ElfW(Ehdr) ehdr;
+    Elf64_Ehdr ehdr;
     // Skip non-readable maps.
-    if (flags_start[0] == 'r' &&
-        ReadFromOffsetExact(mem_fd, &ehdr, sizeof(ElfW(Ehdr)), start_address) &&
+    if (ReadFromOffsetExact(mem_fd, &ehdr, sizeof(ehdr), start_address) &&
         memcmp(ehdr.e_ident, ELFMAG, SELFMAG) == 0) {
       switch (ehdr.e_type) {
       case ET_EXEC:
@@ -585,10 +595,8 @@ OpenObjectFileContainingPcAndGetStartAddress(uint64_t pc,
         // of the ELF header as the base address.
         base_address = start_address;
         for (unsigned i = 0; i != ehdr.e_phnum; ++i) {
-          ElfW(Phdr) phdr;
-          if (ReadFromOffsetExact(
-                  mem_fd, &phdr, sizeof(phdr),
-                  start_address + ehdr.e_phoff + i * sizeof(phdr)) &&
+          Elf64_Phdr phdr;
+          if (ReadFromOffsetExact(mem_fd, &phdr, sizeof(phdr), start_address + ehdr.e_phoff + i * sizeof(phdr)) &&
               phdr.p_type == PT_LOAD && phdr.p_offset == 0) {
             base_address = start_address - phdr.p_vaddr;
             break;
@@ -600,16 +608,6 @@ OpenObjectFileContainingPcAndGetStartAddress(uint64_t pc,
         // affect the base address.
         break;
       }
-    }
-
-    // Check start and end addresses.
-    if (!(start_address <= pc && pc < end_address)) {
-      continue; // We skip this map.  PC isn't in this map.
-    }
-
-    // Check flags.  We are only interested in "r*x" maps.
-    if (flags_start[0] != 'r' || flags_start[2] != 'x') {
-      continue; // We skip this map.
     }
     ++cursor; // Skip ' '.
 
@@ -624,7 +622,7 @@ OpenObjectFileContainingPcAndGetStartAddress(uint64_t pc,
     // Skip to file name.  "cursor" now points to dev.  We need to
     // skip at least two spaces for dev and inode.
     int num_spaces = 0;
-    while (cursor < eol) {
+    for (; cursor < eol; ++cursor) {
       if (*cursor == ' ') {
         ++num_spaces;
       } else if (num_spaces >= 2) {
@@ -632,7 +630,6 @@ OpenObjectFileContainingPcAndGetStartAddress(uint64_t pc,
         // is the beginning of the file name.
         break;
       }
-      ++cursor;
     }
     if (cursor == eol) {
       return -1; // Malformed line.
@@ -741,21 +738,17 @@ static void SafeAppendHexNumber(uint64_t value, char* dest, int dest_size) {
 // and "out" is used as its output.
 // To keep stack consumption low, we would like this function to not
 // get inlined.
-static ATTRIBUTE_NOINLINE bool SymbolizeAndDemangle(void* pc, char* out,
-                                                    int out_size) {
+static ATTRIBUTE_NOINLINE bool SymbolizeAndDemangle(void* pc, char* out, int out_size) {
   uint64_t pc0 = reinterpret_cast<uintptr_t>(pc);
   uint64_t start_address = 0;
   uint64_t base_address = 0;
-  int object_fd = -1;
 
   if (out_size < 1) return false;
   out[0] = '\0';
   SafeAppendString("(", out, out_size);
 
-  object_fd = OpenObjectFileContainingPcAndGetStartAddress(pc0, start_address,
-                                                           base_address,
-                                                           out + 1,
-                                                           out_size - 1);
+  int object_fd = OpenObjectFileContainingPcAndGetStartAddress(
+    pc0, start_address, base_address, out + 1, out_size - 1);
   if (object_fd < 0) return false;
 
   int elf_type = FileGetElfType(object_fd);
