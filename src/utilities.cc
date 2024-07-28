@@ -95,19 +95,17 @@ static void DebugWriteToString(const char* data, void *arg) {
 
 #ifdef HAVE_SYMBOLIZE
 // Print a program counter and its symbol name.
-static void DumpPCAndSymbol(DebugWriter *writerfn, void *arg, void *pc,
-                            const char * const prefix) {
+static void DumpPCAndSymbol(DebugWriter* writerfn, void* arg, void* pc, const char* const prefix) {
   char tmp[1024];
-  const char *symbol = "(unknown)";
+  const char* symbol = "(unknown)";
   // Symbolizes the previous address of pc because pc may be in the
   // next function.  The overrun happens when the function ends with
   // a call to a function annotated noreturn (e.g. CHECK).
-  if (Symbolize(reinterpret_cast<char *>(pc) - 1, tmp, sizeof(tmp))) {
-      symbol = tmp;
+  if (Symbolize(reinterpret_cast<char*>(pc) - 1, tmp, sizeof(tmp))) {
+    symbol = tmp;
   }
   char buf[1024];
-  snprintf(buf, sizeof(buf), "%s@ %*p  %s\n",
-           prefix, kPrintfPointerFieldWidth, pc, symbol);
+  snprintf(buf, sizeof(buf), "%s@ %*p  %s\n", prefix, kPrintfPointerFieldWidth, pc, symbol);
   writerfn(buf, arg);
 }
 #endif
@@ -115,8 +113,7 @@ static void DumpPCAndSymbol(DebugWriter *writerfn, void *arg, void *pc,
 static void DumpPC(DebugWriter *writerfn, void *arg, void *pc,
                    const char * const prefix) {
   char buf[100];
-  snprintf(buf, sizeof(buf), "%s@ %*p\n",
-           prefix, kPrintfPointerFieldWidth, pc);
+  snprintf(buf, sizeof(buf), "%s@ %*p\n", prefix, kPrintfPointerFieldWidth, pc);
   writerfn(buf, arg);
 }
 
@@ -328,9 +325,7 @@ void DumpStackTraceToString(string* stacktrace) {
 static const CrashReason* g_reason = 0;
 
 void SetCrashReason(const CrashReason* r) {
-  sync_val_compare_and_swap(&g_reason,
-                            reinterpret_cast<const CrashReason*>(0),
-                            r);
+  sync_val_compare_and_swap(&g_reason, reinterpret_cast<const CrashReason*>(0), r);
 }
 
 void InitGoogleLoggingUtilities(const char* argv0) {

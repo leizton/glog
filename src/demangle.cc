@@ -191,8 +191,7 @@ static bool StrPrefix(const char *str, const char *prefix) {
   return prefix[i] == '\0';  // Consumed everything in "prefix".
 }
 
-static void InitState(State *state, const char *mangled,
-                      char *out, int out_size) {
+static void InitState(State *state, const char *mangled, char *out, int out_size) {
   state->mangled_cur = mangled;
   state->out_cur = out;
   state->out_begin = out;
@@ -1302,23 +1301,23 @@ static bool ParseSubstitution(State *state) {
 // Parse <mangled-name>, optionally followed by either a function-clone suffix
 // or version suffix.  Returns true only if all of "mangled_cur" was consumed.
 static bool ParseTopLevelMangledName(State *state) {
-  if (ParseMangledName(state)) {
-    if (state->mangled_cur[0] != '\0') {
-      // Drop trailing function clone suffix, if any.
-      if (IsFunctionCloneSuffix(state->mangled_cur)) {
-        return true;
-      }
-      // Append trailing version suffix if any.
-      // ex. _Z3foo@@GLIBCXX_3.4
-      if (state->mangled_cur[0] == '@') {
-        MaybeAppend(state, state->mangled_cur);
-        return true;
-      }
-      return false;  // Unconsumed suffix.
-    }
+  if (!ParseMangledName(state)) {
+    return false;
+  }
+  if (state->mangled_cur[0] == '\0') {
     return true;
   }
-  return false;
+  // Drop trailing function clone suffix, if any.
+  if (IsFunctionCloneSuffix(state->mangled_cur)) {
+    return true;
+  }
+  // Append trailing version suffix if any.
+  // ex. _Z3foo@@GLIBCXX_3.4
+  if (state->mangled_cur[0] == '@') {
+    MaybeAppend(state, state->mangled_cur);
+    return true;
+  }
+  return false;  // Unconsumed suffix.
 }
 #endif
 

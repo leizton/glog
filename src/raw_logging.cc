@@ -144,8 +144,7 @@ void RawLog__(LogSeverity severity, const char* file, int line,
       memcpy(crash_buf, msg_start, msg_size);  // Don't include prefix
       crash_reason.message = crash_buf;
 #ifdef HAVE_STACKTRACE
-      crash_reason.depth =
-          GetStackTrace(crash_reason.stack, ARRAYSIZE(crash_reason.stack), 1);
+      crash_reason.depth = GetStackTrace(crash_reason.stack, ARRAYSIZE(crash_reason.stack), 1);
 #else
       crash_reason.depth = 0;
 #endif

@@ -83,10 +83,8 @@ void InstallSymbolizeCallback(SymbolizeCallback callback) {
   g_symbolize_callback = callback;
 }
 
-static SymbolizeOpenObjectFileCallback g_symbolize_open_object_file_callback =
-    NULL;
-void InstallSymbolizeOpenObjectFileCallback(
-    SymbolizeOpenObjectFileCallback callback) {
+static SymbolizeOpenObjectFileCallback g_symbolize_open_object_file_callback = NULL;
+void InstallSymbolizeOpenObjectFileCallback(SymbolizeOpenObjectFileCallback callback) {
   g_symbolize_open_object_file_callback = callback;
 }
 
@@ -94,7 +92,7 @@ void InstallSymbolizeOpenObjectFileCallback(
 // where the input symbol is demangled in-place.
 // To keep stack consumption low, we would like this function to not
 // get inlined.
-static ATTRIBUTE_NOINLINE void DemangleInplace(char *out, int out_size) {
+static void DemangleInplace(char *out, int out_size) {
   char demangled[256];  // Big enough for sane demangled symbols.
   if (Demangle(out, demangled, sizeof(demangled))) {
     // Demangling succeeded. Copy to out if the space allows.
@@ -143,16 +141,16 @@ _START_GOOGLE_NAMESPACE_
 // descriptor "fd" into the buffer starting at "buf" while handling short reads
 // and EINTR.  On success, return the number of bytes read.  Otherwise, return
 // -1.
-static ssize_t ReadFromOffset(const int fd, void *buf, const size_t count,
-                              const off_t offset) {
+static ssize_t ReadFromOffset(const int fd, void *buf, const size_t count, const off_t offset) {
   SAFE_ASSERT(fd >= 0);
   SAFE_ASSERT(count <= std::numeric_limits<ssize_t>::max());
   char *buf0 = reinterpret_cast<char *>(buf);
   ssize_t num_bytes = 0;
   while (num_bytes < count) {
     ssize_t len;
-    NO_INTR(len = pread(fd, buf0 + num_bytes, count - num_bytes,
-                        offset + num_bytes));
+    do {
+      len = pread(fd, buf0 + num_bytes, count - num_bytes, offset + num_bytes);
+    } while (len < 0 && errno == EINTR);
     if (len < 0) {  // There was an error other than EINTR.
       return -1;
     }
@@ -187,30 +185,23 @@ static int FileGetElfType(const int fd) {
   return elf_header.e_type;
 }
 
-// Read the section headers in the given ELF binary, and if a section
-// of the specified type is found, set the output to this section header
-// and return true.  Otherwise, return false.
-// To keep stack consumption low, we would like this function to not get
-// inlined.
-static ATTRIBUTE_NOINLINE bool
-GetSectionHeaderByType(const int fd, ElfW(Half) sh_num, const off_t sh_offset,
-                       ElfW(Word) type, ElfW(Shdr) *out) {
-  // Read at most 16 section headers at a time to save read calls.
-  ElfW(Shdr) buf[16];
-  for (int i = 0; i < sh_num;) {
-    const ssize_t num_bytes_left = (sh_num - i) * sizeof(buf[0]);
-    const ssize_t num_bytes_to_read =
-        (sizeof(buf) > num_bytes_left) ? num_bytes_left : sizeof(buf);
-    const ssize_t len = ReadFromOffset(fd, buf, num_bytes_to_read,
-                                       sh_offset + i * sizeof(buf[0]));
-    if (len == -1) {
-      return false;
-    }
-    SAFE_ASSERT(len % sizeof(buf[0]) == 0);
-    const ssize_t num_headers_in_buf = len / sizeof(buf[0]);
-    SAFE_ASSERT(num_headers_in_buf <= sizeof(buf) / sizeof(buf[0]));
+/**
+ * 遍历 $sh_num 个section_header, 找出 $sh_type 的那个section_header
+ * 找到返回true, 找不到返回false
+*/
+static bool GetSectionHeaderByType(const int fd, ElfW(Half) sh_num, const off_t sh_offset,
+                                   ElfW(Word) sh_type, ElfW(Shdr) *out) {
+  constexpr int sh_size = (int) sizeof(ElfW(Shdr));  // size of section_header
+  constexpr int buf_sh_num = 16;
+  ElfW(Shdr) buf[buf_sh_num];  // 一次最多读16个section_header
+  for (int i = 0; i < sh_num; ) {
+    int left_sh_num = sh_num - i;
+    int read_sh_num = std::min(buf_sh_num, left_sh_num);
+    int len = ReadFromOffset(fd, buf, read_sh_num * sh_size, sh_offset + i * sh_size);
+    if (len == -1) return false;
+    int num_headers_in_buf = len / sh_size;
     for (int j = 0; j < num_headers_in_buf; ++j) {
-      if (buf[j].sh_type == type) {
+      if (buf[j].sh_type == sh_type) {
         *out = buf[j];
         return true;
       }
@@ -273,52 +264,34 @@ bool GetSectionHeaderByName(int fd, const char *name, size_t name_len,
 // to out.  Otherwise, return false.
 // To keep stack consumption low, we would like this function to not get
 // inlined.
-static ATTRIBUTE_NOINLINE bool
-FindSymbol(uint64_t pc, const int fd, char *out, int out_size,
-           uint64_t symbol_offset, const ElfW(Shdr) *strtab,
-           const ElfW(Shdr) *symtab) {
-  if (symtab == NULL) {
-    return false;
-  }
-  const int num_symbols = symtab->sh_size / symtab->sh_entsize;
-  for (int i = 0; i < num_symbols;) {
-    off_t offset = symtab->sh_offset + i * symtab->sh_entsize;
-
-    // If we are reading Elf64_Sym's, we want to limit this array to
-    // 32 elements (to keep stack consumption low), otherwise we can
-    // have a 64 element Elf32_Sym array.
-#if __WORDSIZE == 64
-#define NUM_SYMBOLS 32
-#else
-#define NUM_SYMBOLS 64
-#endif
-
-    // Read at most NUM_SYMBOLS symbols at once to save read() calls.
-    ElfW(Sym) buf[NUM_SYMBOLS];
-    int num_symbols_to_read = std::min(NUM_SYMBOLS, num_symbols - i);
-    const ssize_t len =
-        ReadFromOffset(fd, &buf, sizeof(buf[0]) * num_symbols_to_read, offset);
-    SAFE_ASSERT(len % sizeof(buf[0]) == 0);
-    const ssize_t num_symbols_in_buf = len / sizeof(buf[0]);
-    SAFE_ASSERT(num_symbols_in_buf <= num_symbols_to_read);
-    for (int j = 0; j < num_symbols_in_buf; ++j) {
+static bool FindSymbol(uint64_t pc, const int fd, char* out, int out_size, uint64_t symbol_offset
+                       const ElfW(Shdr)* strtab, const ElfW(Shdr)* symtab) {
+  constexpr int sym_size = (int) sizeof(ElfW(Sym));  // size of symbol
+  constexpr int buf_sym_num = sizeof(void*) * 8;     // 一次最多读的符号数
+  const int sym_num = symtab->sh_size / symtab->sh_entsize;  // 总符号数
+  ElfW(Sym) buf[buf_sym_num];
+  for (int i = 0; i < sym_num; ) {
+    int to_read_num = std::min(buf_sym_num, sym_num - i);
+    int len = ReadFromOffset(fd, &buf, to_read_num * sym_size, symtab->sh_offset + i * symtab->sh_entsize);
+    if (len <= 0) return false;
+    int readed_num = len / sym_size;
+    for (int j = 0; j < readed_num; j++) {
       const ElfW(Sym)& symbol = buf[j];
-      uint64_t start_address = symbol.st_value;
-      start_address += symbol_offset;
+      if (symbol.st_value == 0 || symbol.st_shndx == 0) {
+        continue;  // skip null value & undefined symbol
+      }
+      uint64_t start_address = symbol.st_value + symbol_offset;
       uint64_t end_address = start_address + symbol.st_size;
-      if (symbol.st_value != 0 &&  // Skip null value symbols.
-          symbol.st_shndx != 0 &&  // Skip undefined symbols.
-          start_address <= pc && pc < end_address) {
-        ssize_t len1 = ReadFromOffset(fd, out, out_size,
-                                      strtab->sh_offset + symbol.st_name);
-        if (len1 <= 0 || memchr(out, '\0', out_size) == NULL) {
+      if (start_address <= pc && pc < end_address) {
+        len = ReadFromOffset(fd, out, out_size, strtab->sh_offset + symbol.st_name);
+        if (len <= 0 || memchr(out, '\0', out_size) == NULL) {
           memset(out, 0, out_size);
           return false;
         }
         return true;  // Obtained the symbol name.
       }
     }
-    i += num_symbols_in_buf;
+    i += readed_num;
   }
   return false;
 }
@@ -341,22 +314,18 @@ static bool GetSymbolFromObjectFile(const int fd,
   ElfW(Shdr) symtab, strtab;
 
   // Consult a regular symbol table first.
-  if (GetSectionHeaderByType(fd, elf_header.e_shnum, elf_header.e_shoff,
-                             SHT_SYMTAB, &symtab)) {
-    if (!ReadFromOffsetExact(fd, &strtab, sizeof(strtab), elf_header.e_shoff +
-                             symtab.sh_link * sizeof(symtab))) {
+  if (GetSectionHeaderByType(fd, elf_header.e_shnum, elf_header.e_shoff, SHT_SYMTAB, &symtab)) {
+    if (!ReadFromOffsetExact(fd, &strtab, sizeof(strtab), elf_header.e_shoff + symtab.sh_link * sizeof(symtab))) {
       return false;
     }
     if (FindSymbol(pc, fd, out, out_size, base_address, &strtab, &symtab)) {
       return true;  // Found the symbol in a regular symbol table.
-    }
+    } 
   }
 
   // If the symbol is not found, then consult a dynamic symbol table.
-  if (GetSectionHeaderByType(fd, elf_header.e_shnum, elf_header.e_shoff,
-                             SHT_DYNSYM, &symtab)) {
-    if (!ReadFromOffsetExact(fd, &strtab, sizeof(strtab), elf_header.e_shoff +
-                             symtab.sh_link * sizeof(symtab))) {
+  if (GetSectionHeaderByType(fd, elf_header.e_shnum, elf_header.e_shoff, SHT_DYNSYM, &symtab)) {
+    if (!ReadFromOffsetExact(fd, &strtab, sizeof(strtab), elf_header.e_shoff + symtab.sh_link * sizeof(symtab))) {
       return false;
     }
     if (FindSymbol(pc, fd, out, out_size, base_address, &strtab, &symtab)) {
@@ -597,9 +566,7 @@ OpenObjectFileContainingPcAndGetStartAddress(uint64_t pc,
           base_address = start_address;
           for (unsigned i = 0; i != ehdr.e_phnum; ++i) {
             ElfW(Phdr) phdr;
-            if (ReadFromOffsetExact(
-                    mem_fd, &phdr, sizeof(phdr),
-                    start_address + ehdr.e_phoff + i * sizeof(phdr)) &&
+            if (ReadFromOffsetExact(mem_fd, &phdr, sizeof(phdr), start_address + ehdr.e_phoff + i * sizeof(phdr)) &&
                 phdr.p_type == PT_LOAD && phdr.p_offset == 0) {
               base_address = start_address - phdr.p_vaddr;
               break;
@@ -760,8 +727,7 @@ static void SafeAppendHexNumber(uint64_t value, char* dest, int dest_size) {
 // and "out" is used as its output.
 // To keep stack consumption low, we would like this function to not
 // get inlined.
-static ATTRIBUTE_NOINLINE bool SymbolizeAndDemangle(void *pc, char *out,
-                                                    int out_size) {
+static bool SymbolizeAndDemangle(void *pc, char *out, int out_size) {
   uint64_t pc0 = reinterpret_cast<uintptr_t>(pc);
   uint64_t start_address = 0;
   uint64_t base_address = 0;
@@ -773,25 +739,15 @@ static ATTRIBUTE_NOINLINE bool SymbolizeAndDemangle(void *pc, char *out,
   out[0] = '\0';
   SafeAppendString("(", out, out_size);
 
+  // 找到符号所在的文件. 可以是可执行文件binary或者动态链接库so
   if (g_symbolize_open_object_file_callback) {
-    object_fd = g_symbolize_open_object_file_callback(pc0, start_address,
-                                                      base_address, out + 1,
-                                                      out_size - 1);
+    object_fd = g_symbolize_open_object_file_callback(pc0, start_address, base_address, out + 1, out_size - 1);
   } else {
-    object_fd = OpenObjectFileContainingPcAndGetStartAddress(pc0, start_address,
-                                                             base_address,
-                                                             out + 1,
-                                                             out_size - 1);
+    object_fd = OpenObjectFileContainingPcAndGetStartAddress(pc0, start_address, base_address, out + 1, out_size - 1);
   }
 
-  FileDescriptor wrapped_object_fd(object_fd);
-
-#if defined(PRINT_UNSYMBOLIZED_STACK_TRACES)
-  {
-#else
   // Check whether a file name was returned.
   if (object_fd < 0) {
-#endif
     if (out[1]) {
       // The object file containing PC was determined successfully however the
       // object file was not opened successfully.  This is still considered
@@ -806,6 +762,8 @@ static ATTRIBUTE_NOINLINE bool SymbolizeAndDemangle(void *pc, char *out,
     // Failed to determine the object file containing PC.  Bail out.
     return false;
   }
+
+  FileDescriptor wrapped_object_fd(object_fd);
   int elf_type = FileGetElfType(wrapped_object_fd.get());
   if (elf_type == -1) {
     return false;
@@ -815,16 +773,13 @@ static ATTRIBUTE_NOINLINE bool SymbolizeAndDemangle(void *pc, char *out,
     // Note: relocation (and much of the rest of this code) will be
     // wrong for prelinked shared libraries and PIE executables.
     uint64_t relocation = (elf_type == ET_DYN) ? start_address : 0;
-    int num_bytes_written = g_symbolize_callback(wrapped_object_fd.get(),
-                                                 pc, out, out_size,
-                                                 relocation);
+    int num_bytes_written = g_symbolize_callback(wrapped_object_fd.get(), pc, out, out_size, relocation);
     if (num_bytes_written > 0) {
       out += num_bytes_written;
       out_size -= num_bytes_written;
     }
   }
-  if (!GetSymbolFromObjectFile(wrapped_object_fd.get(), pc0,
-                               out, out_size, base_address)) {
+  if (!GetSymbolFromObjectFile(wrapped_object_fd.get(), pc0, out, out_size, base_address)) {
     if (out[1] && !g_symbolize_callback) {
       // The object file containing PC was opened successfully however the
       // symbol was not found. The object may have been stripped. This is still
@@ -853,8 +808,8 @@ _END_GOOGLE_NAMESPACE_
 
 _START_GOOGLE_NAMESPACE_
 
-static ATTRIBUTE_NOINLINE bool SymbolizeAndDemangle(void *pc, char *out,
-                                                    int out_size) {
+// macos 系统
+static bool SymbolizeAndDemangle(void *pc, char *out, int out_size) {
   Dl_info info;
   if (dladdr(pc, &info)) {
     if (info.dli_sname) {
@@ -907,8 +862,8 @@ private:
   SymInitializer& operator=(const SymInitializer&);
 };
 
-static ATTRIBUTE_NOINLINE bool SymbolizeAndDemangle(void *pc, char *out,
-                                                      int out_size) {
+// windows 系统
+static bool SymbolizeAndDemangle(void *pc, char *out, int out_size) {
   const static SymInitializer symInitializer;
   if (!symInitializer.ready) {
     return false;
@@ -921,8 +876,7 @@ static ATTRIBUTE_NOINLINE bool SymbolizeAndDemangle(void *pc, char *out,
   symbol->MaxNameLen = MAX_SYM_NAME;
   // We use the ANSI version to ensure the string type is always `char *`.
   // This could break if a symbol has Unicode in it.
-  BOOL ret = SymFromAddr(symInitializer.process,
-                         reinterpret_cast<DWORD64>(pc), 0, symbol);
+  BOOL ret = SymFromAddr(symInitializer.process, reinterpret_cast<DWORD64>(pc), 0, symbol);
   if (ret == 1 && static_cast<int>(symbol->NameLen) < out_size) {
     // `NameLen` does not include the null terminating character.
     strncpy(out, symbol->Name, static_cast<size_t>(symbol->NameLen) + 1);
